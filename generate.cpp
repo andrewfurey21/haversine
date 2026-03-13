@@ -1,52 +1,18 @@
-#include <cassert>
-#include <cmath>
-#include <cstdio>
-
-#include <iostream>
-#include <fstream>
-
-#include <ostream>
-#include <random>
-#include <string>
-
-typedef double f64;
-typedef unsigned long long u64;
-typedef int i32;
-
-struct latlon {
-  f64 lat;
-  f64 lon;
-};
-
-f64 degrees_to_radians(f64 degrees) {
-  return 0.01745329251994329577f * degrees;
-}
-
-f64 square(f64 a) { return a * a; }
-
-f64 reference_haversine(const latlon& a, const latlon& b, f64 radius) {
-  f64 dlat = degrees_to_radians(b.lat - a.lat);
-  f64 dlon = degrees_to_radians(b.lon - a.lon);
-
-  f64 lat1 = degrees_to_radians(a.lat);
-  f64 lat2 = degrees_to_radians(b.lat);
-
-  f64 z = square(sin(dlat / 2.0)) + cos(lat1) * cos(lat2) * square(sin(dlon / 2.0));
-  f64 c = 2.0 * asin(sqrt(z));
-
-  return radius * c;
-}
+#include "haversine.hpp"
 
 void generate_points_json(i32 random_seed, u64 num_pairs) {
-  std::string file_name = std::to_string(random_seed) + "_" + std::to_string(num_pairs) + ".json";
-  std::ofstream file(file_name);
+  std::string json_name =
+    std::to_string(random_seed) + "_" + std::to_string(num_pairs) + ".json";
+  std::string bin_name =
+    std::to_string(random_seed) + "_" + std::to_string(num_pairs) + ".f64";
 
-  std::random_device device; // operater() overload produces a random seed
-  std::mt19937_64 rng(device());
-  // std::mt19937_64 rng(random_seed);
+  std::ofstream json(json_name);
+  std::ofstream bin(bin_name);
+
+  std::mt19937_64 rng(random_seed);
   std::uniform_real_distribution<f64> distribution(0.0, 1.0);
 
-  file << "{\"pairs\":[";
+  json << "{\"pairs\":[";
 
   f64 sum = 0.0;
   for (u64 i{}; i < num_pairs; i++) {
@@ -74,21 +40,25 @@ void generate_points_json(i32 random_seed, u64 num_pairs) {
     f64 h = reference_haversine(a, b, earth_radius);
     sum += h;
 
-    file << "{\"x0\":" + x0s + ", \"y0\":" + y0s + ", \"x1\":" + x1s + ", \"y1\":" + y1s + "}";
-    if (i != num_pairs - 1) file << ",";
-    file << "\n";
+    json << "{\"x0\":" + x0s + ", \"y0\":" + y0s + ", \"x1\":" + x1s + ", \"y1\":" + y1s + "}";
+    if (i != num_pairs - 1) json << ",";
+    json << "\n";
   }
 
   sum /= num_pairs;
-  std::cout << "average haversine: " << sum << "\n";
 
-  file << "]}";
-  file.close();
+  std::cout << "Output: " << sum << "\n";
+  const char * f = reinterpret_cast<const char *>(&sum);
+  bin.write(f, sizeof(f64));
+
+  json << "]}";
+  json.close();
+  bin.close();
 }
 
 i32 main(i32 argc, char** argv) {
   if (argc != 3) {
-    std::cerr << "Usage: ./haversine <random seed> <number of coordinate pairs to generate>" << "\n";
+    std::cerr << "Usage: ./generate <random seed> <number of coordinate pairs to generate>\n";
     return -1;
   }
 
