@@ -1,4 +1,5 @@
 *.json
 generate
+parser
 *.f64
 *.o

@@ -27,17 +27,10 @@ void generate_points_json(i32 random_seed, u64 num_pairs) {
     std::string x1s = std::to_string(x1);
     std::string y1s = std::to_string(y1);
 
-    latlon a = {
-      .lat = x0,
-      .lon = y0,
-    };
+    lonlat a = {.lon = x0, .lat = y0, };
+    lonlat b = { .lon = x1, .lat = y1, };
 
-    latlon b = {
-      .lat = x1,
-      .lon = y1,
-    };
-    const f64 earth_radius = 6372.8;
-    f64 h = reference_haversine(a, b, earth_radius);
+    f64 h = reference_haversine(a, b, EARTH_RADIUS);
     sum += h;
 
     json << "{\"x0\":" + x0s + ", \"y0\":" + y0s + ", \"x1\":" + x1s + ", \"y1\":" + y1s + "}";
@@ -45,7 +38,7 @@ void generate_points_json(i32 random_seed, u64 num_pairs) {
     json << "\n";
   }
 
-  sum /= num_pairs;
+  sum /= num_pairs; // TODO: come up with better tests. maybe store all?
 
   std::cout << "Output: " << sum << "\n";
   const char * f = reinterpret_cast<const char *>(&sum);

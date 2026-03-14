@@ -6,7 +6,7 @@ f64 degrees_to_radians(f64 degrees) {
 
 f64 square(f64 a) { return a * a; }
 
-f64 reference_haversine(const latlon& a, const latlon& b, f64 radius) {
+f64 reference_haversine(const lonlat& a, const lonlat& b, f64 radius) {
   f64 dlat = degrees_to_radians(b.lat - a.lat);
   f64 dlon = degrees_to_radians(b.lon - a.lon);
 
