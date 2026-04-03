@@ -1,0 +1,423 @@
+
+// Simple C++ json parser
+
+#include <vector>
+
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <alloca.h>
+
+using u8 = uint8_t;
+using u64 = uint64_t;
+using u32 = int32_t;
+using b8 = u8;
+
+struct Buffer {
+  u8 * data;
+  u64 capacity;
+  Buffer() : capacity(0), data(NULL) {}
+  Buffer(const Buffer& other) : capacity(other.capacity) {
+    data = (u8 *)malloc(sizeof(u8) * capacity);
+    memcpy(data, other.data, capacity);
+  }
+  Buffer& operator=(const Buffer& other) {
+    if (this != &other) {
+      this->capacity = other.capacity;
+      this->data = (u8 *)malloc(sizeof(u8) * this->capacity);
+      memcpy(this->data, other.data, this->capacity);
+    }
+    return *this;
+  }
+  Buffer& operator=(Buffer&& other) {
+    if (this != &other) {
+      this->capacity = other.capacity;
+      this->data = other.data;
+      other.data = NULL;
+    }
+    return *this;
+  }
+  Buffer(Buffer&& other) : capacity(other.capacity) {
+    data = other.data;
+    other.data = NULL;
+  }
+
+  inline void destroy() {
+    // printf("Destroying buffer len(%ld): %.*s\n",
+    //        capacity, (int)capacity, data);
+
+    free(data);
+    data = NULL;
+    capacity = 0;
+  }
+
+  ~Buffer() {
+    destroy();
+  }
+};
+
+enum class JSONTokenType : u8 {
+  OPEN_CURLY = '{',
+  CLOSED_CURLY = '}',
+  OPEN_BRACKET = '[',
+  CLOSED_BRACKET = ']',
+
+  FALSE = 'f',
+  TRUE = 't',
+  NUMBER = 'N',
+  STRING = 'S',
+  JSONNULL = '-',
+
+  COMMA = ',',
+  COLON = ':',
+
+  ERROR = 'E',
+  END_OF_FILE = '!',
+  UNSPECIFIED = '?'
+};
+
+struct JSONToken {
+  JSONTokenType type;
+  Buffer buffer;
+};
+
+
+inline b8 is_whitespace(u8 character) {
+  return (character == '\t' || character == ' ' ||
+          character == '\r' || character == '\n');
+}
+
+inline u8 read_char(FILE * f, u8 * character) {
+  u64 advanced = fread(character, sizeof(u8), 1, f);
+  assert(advanced == sizeof(u8) || feof(f));
+  return *character;
+}
+
+inline b8 match_lookahead(FILE * f, const char * match) {
+  for (u64 i{}; i < strlen(match); i++) {
+    u8 current;
+    read_char(f, &current);
+    if (match[i] != current) return false;
+  }
+  return true;
+}
+
+inline void copy_string(JSONToken& token, FILE * f, const u64 alignment = 16) {
+  // NOTE: Stack has to grow downward.
+  u8 * string_stack = (u8 *)alloca(sizeof(u8));
+  u64 count = 0;
+
+  // TODO: recognize escaped characters.
+  while (read_char(f, string_stack) != '"' && !feof(f)) {
+    count++;
+
+    // NOTE: no check for overflow. Alignment also matters here.
+    string_stack = (u8 *)alloca(sizeof(u8));
+  }
+
+  if (feof(f)) {
+    token.type = JSONTokenType::ERROR; // TODO: add error message to buffer.
+    return;
+  }
+
+  if (count == 0) return;
+
+  token.buffer.capacity = count;
+  token.buffer.data = (u8 *)malloc(count * sizeof(u8));
+
+  for (u64 buffer_index = 1; buffer_index <= count; buffer_index++) {
+    u64 stack_index = buffer_index * alignment;
+    token.buffer.data[count - buffer_index] = string_stack[stack_index];
+  }
+}
+
+// NOTE: not standard json.
+inline b8 is_numeric(u8 c) {
+  return c == '-' || ('0' <= c && c <= '9') || c == '.';
+}
+
+// NOTE: not standard json.
+inline void check_number(JSONToken& token) {
+  b8 correct = true;
+
+  u8 num_points = 0;
+  for (u64 i = 0; i < token.buffer.capacity; i++) {
+    u8 c = token.buffer.data[i];
+    if (!is_numeric(c) || num_points >= 2 || (c == '-' && i != 0))  {
+      correct = false;
+      break;
+    }
+
+    if (c == '.') num_points++;
+  }
+
+  if (!correct) {
+    token.buffer.destroy();
+    token.type = JSONTokenType::ERROR;
+  }
+}
+
+inline void read_number(JSONToken& token, FILE * f, u8 start, const u64 alignment = 16) {
+    u8 * number_stack = (u8 *)alloca(sizeof(u8));
+    u64 count = 1;
+
+    u32 last;
+    while (is_numeric(read_char(f, number_stack)) && !feof(f)) {
+      count++;
+      number_stack = (u8 *)alloca(sizeof(u8));
+      last = ftell(f);
+    }
+    fseek(f, last, SEEK_SET);
+
+    if (feof(f)) {
+      token.type = JSONTokenType::ERROR;
+      return;
+    }
+
+    token.buffer.capacity = count;
+    token.buffer.data = (u8 *)malloc(count * sizeof(u8));
+
+    for (u64 buffer_index = 1; buffer_index < count; buffer_index++) {
+      u64 stack_index = buffer_index * alignment;
+      token.buffer.data[count - buffer_index] = number_stack[stack_index];
+    }
+    token.buffer.data[0] = start;
+
+    check_number(token);
+}
+
+inline JSONToken get_next_token(FILE * file) {
+  JSONToken token;
+
+  u8 current_character = ' ';
+  while (!feof(file) && is_whitespace(current_character)) {
+    read_char(file, &current_character);
+  }
+
+  if (feof(file)) {
+    token.type = JSONTokenType::END_OF_FILE;
+    return token;
+  }
+
+  switch(current_character) {
+
+    case '{': {
+        token.type = JSONTokenType::OPEN_CURLY;
+      } break;
+    case '}': {
+        token.type = JSONTokenType::CLOSED_CURLY;
+      } break;
+
+    case '[': {
+        token.type = JSONTokenType::OPEN_BRACKET;
+      } break;
+    case ']': {
+        token.type = JSONTokenType::CLOSED_BRACKET;
+      } break;
+
+    case ',': {
+        token.type = JSONTokenType::COMMA;
+      } break;
+    case ':': {
+        token.type = JSONTokenType::COLON;
+      } break;
+
+    case 'f': {
+        if (match_lookahead(file, "alse")) token.type = JSONTokenType::FALSE;
+        else token.type = JSONTokenType::ERROR;
+      } break;
+    case 't': {
+        if (match_lookahead(file, "rue")) token.type = JSONTokenType::TRUE;
+        else token.type = JSONTokenType::ERROR;
+      } break;
+    case 'n': {
+        if (match_lookahead(file, "ull")) token.type = JSONTokenType::JSONNULL;
+        else token.type = JSONTokenType::ERROR;
+      } break;
+
+    case '"': {
+        token.type = JSONTokenType::STRING;
+        copy_string(token, file);
+      } break;
+
+    case '-':
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9': {
+        token.type = JSONTokenType::NUMBER;
+        read_number(token, file, current_character);
+      } break;
+
+    default: {
+      token.type = JSONTokenType::ERROR;
+    } break;
+  }
+
+  return token;
+}
+
+struct JSONElement {
+  JSONToken key;
+  JSONElement * value;
+  JSONElement * next;
+
+  JSONElement() : key(), value(), next(NULL) {}
+  ~JSONElement() {}
+};
+
+inline void destroy_json(JSONElement ** json) {
+  delete *json;
+  (*json) = NULL;
+}
+
+inline JSONElement * parse_literal(const JSONToken& token) {
+  if (token.type != JSONTokenType::FALSE  &&
+      token.type != JSONTokenType::TRUE   &&
+      token.type != JSONTokenType::NUMBER &&
+      token.type != JSONTokenType::STRING &&
+      token.type != JSONTokenType::JSONNULL) {
+    printf("Error: could not parse literal.\n");
+    return NULL;
+  }
+
+  JSONElement * literal = new JSONElement();
+  literal->key = token; // copied :(
+
+  return literal;
+}
+
+JSONElement * parse_json(FILE * file);
+inline JSONElement * parse_object(FILE * file) {
+  //     previous <-------
+  //                     |
+  // { "key": json, "key": json, ... }
+
+  JSONElement * previous = NULL;
+  JSONElement * object = new JSONElement();
+  JSONElement * head = object;
+
+  enum class State {
+    KEY, COLON, JSON, COMMA
+  };
+
+  State state = State::KEY;
+  // [ string, colon, json, comma ]
+  JSONToken token;
+  while (token.type != JSONTokenType::END_OF_FILE &&
+         token.type != JSONTokenType::ERROR) {
+
+    switch (state) {
+      case State::KEY: {
+          token = get_next_token(file);
+          if (token.type == JSONTokenType::CLOSED_CURLY) {
+            return head;
+          }
+
+          if (previous != NULL) {
+            object = new JSONElement();
+          }
+
+          if (token.type != JSONTokenType::STRING) {
+            printf("Error: expected string as key, got %d.\n", (int)token.type);
+            return NULL;
+          }
+
+          object->key = token;
+          state = State::COLON;
+        } break;
+
+      case State::COLON: {
+          token = get_next_token(file);
+          if (token.type != JSONTokenType::COLON) {
+            printf("Error: expected ':' but got %d.\n", (int)token.type);
+            return NULL;
+          }
+          state = State::JSON;
+        } break;
+
+      case State::JSON: {
+          object->value = parse_json(file);
+          state = State::COMMA;
+        } break;
+
+      case State::COMMA: {
+          token = get_next_token(file);
+          if (token.type != JSONTokenType::COMMA) {
+            printf("Error: expected ',' but got %d.\n", (int)token.type);
+            return NULL;
+          }
+          state = State::KEY;
+
+          if (previous == NULL) {
+            previous = object;
+          } else {
+            previous->next = object;
+          }
+        } break;
+    }
+  }
+
+  if (token.type == JSONTokenType::END_OF_FILE) {
+    printf("Error: missing '}'\n");
+    return NULL;
+  }
+
+  if (token.type == JSONTokenType::ERROR) {
+    printf("Error: bad token when parsing object.\n");
+    return NULL;
+  }
+
+  // shouldn't have gotten here.
+  return head;
+}
+
+inline JSONElement * parse_list(FILE * file) {
+  // [ json, json, ... ]
+
+  return NULL;
+}
+
+
+// parses a literal, array or object.
+inline JSONElement * parse_json(FILE * file) {
+  JSONElement * json = NULL;
+
+  JSONToken token = get_next_token(file);
+
+  switch (token.type) {
+    case JSONTokenType::OPEN_CURLY: {
+        // parse object
+        json = parse_object(file);
+      } break;
+
+    case JSONTokenType::OPEN_BRACKET: {
+        // parse list.
+        json = parse_list(file);
+      } break;
+
+    case JSONTokenType::FALSE:
+    case JSONTokenType::TRUE:
+    case JSONTokenType::NUMBER:
+    case JSONTokenType::STRING:
+    case JSONTokenType::JSONNULL: {
+        json = parse_literal(token);
+      } break;
+
+    default: {
+       printf("Error: token type = %c\n", (u8)token.type);
+       return NULL;
+     } break;
+  }
+
+  return json;
+}
+
