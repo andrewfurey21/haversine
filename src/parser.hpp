@@ -1,7 +1,5 @@
 
-// Simple C++ json parser
-
-#include <vector>
+// Simple C++ json parsing, not compliant.
 
 #include <cassert>
 #include <cstdint>
@@ -18,21 +16,42 @@ using b8 = u8;
 struct Buffer {
   u8 * data;
   u64 capacity;
-  Buffer() : capacity(0), data(NULL) {}
+  Buffer(u64 capacity) : capacity(capacity), data(NULL) {
+    if (capacity > 0) {
+      data = (u8 *)malloc(capacity * sizeof(u8));
+    }
+  }
+  Buffer() : Buffer(0) {}
   Buffer(const Buffer& other) : capacity(other.capacity) {
-    data = (u8 *)malloc(sizeof(u8) * capacity);
-    memcpy(data, other.data, capacity);
+    if (capacity > 0) {
+      data = (u8 *)malloc(sizeof(u8) * capacity);
+      memcpy(data, other.data, capacity);
+    } else {
+      data = NULL;
+    }
   }
   Buffer& operator=(const Buffer& other) {
     if (this != &other) {
+      if (this->capacity > 0) {
+        free(this->data);
+      }
+
       this->capacity = other.capacity;
-      this->data = (u8 *)malloc(sizeof(u8) * this->capacity);
-      memcpy(this->data, other.data, this->capacity);
+      if (this->capacity > 0) {
+        this->data = (u8 *)malloc(sizeof(u8) * this->capacity);
+        memcpy(this->data, other.data, this->capacity);
+      } else {
+        this->data = NULL;
+      }
     }
     return *this;
   }
   Buffer& operator=(Buffer&& other) {
     if (this != &other) {
+      if (this->capacity > 0) {
+        free(this->data);
+      }
+
       this->capacity = other.capacity;
       this->data = other.data;
       other.data = NULL;
@@ -44,10 +63,8 @@ struct Buffer {
     other.data = NULL;
   }
 
-  inline void destroy() {
-    // printf("Destroying buffer len(%ld): %.*s\n",
-    //        capacity, (int)capacity, data);
-
+  void destroy() {
+    printf("Destroying buffer: (%d) %.*s\n", (int)capacity, (int)capacity, data);
     free(data);
     data = NULL;
     capacity = 0;
@@ -59,6 +76,7 @@ struct Buffer {
 };
 
 enum class JSONTokenType : u8 {
+  UNSPECIFIED = 0,
   OPEN_CURLY = '{',
   CLOSED_CURLY = '}',
   OPEN_BRACKET = '[',
@@ -75,12 +93,19 @@ enum class JSONTokenType : u8 {
 
   ERROR = 'E',
   END_OF_FILE = '!',
-  UNSPECIFIED = '?'
 };
 
 struct JSONToken {
   JSONTokenType type;
   Buffer buffer;
+
+  JSONToken() : type(JSONTokenType::UNSPECIFIED), buffer() {}
+  // JSONToken(const JSONToken& other) {
+  //   printf("Copying: %.*s\n", (int)other.buffer.capacity, other.buffer.data);
+  //   type = other.type;
+  //   buffer = Buffer(other.buffer);
+  // }
+  ~JSONToken() { printf("Deleting token: "); }
 };
 
 
@@ -124,8 +149,7 @@ inline void copy_string(JSONToken& token, FILE * f, const u64 alignment = 16) {
 
   if (count == 0) return;
 
-  token.buffer.capacity = count;
-  token.buffer.data = (u8 *)malloc(count * sizeof(u8));
+  token.buffer = Buffer(count);
 
   for (u64 buffer_index = 1; buffer_index <= count; buffer_index++) {
     u64 stack_index = buffer_index * alignment;
@@ -163,7 +187,7 @@ inline void read_number(JSONToken& token, FILE * f, u8 start, const u64 alignmen
     u8 * number_stack = (u8 *)alloca(sizeof(u8));
     u64 count = 1;
 
-    u32 last;
+    u32 last = ftell(f);
     while (is_numeric(read_char(f, number_stack)) && !feof(f)) {
       count++;
       number_stack = (u8 *)alloca(sizeof(u8));
@@ -270,13 +294,15 @@ struct JSONElement {
   JSONElement * value;
   JSONElement * next;
 
-  JSONElement() : key(), value(), next(NULL) {}
-  ~JSONElement() {}
+  JSONElement() : key(), value(NULL), next(NULL) {}
 };
 
-inline void destroy_json(JSONElement ** json) {
-  delete *json;
-  (*json) = NULL;
+inline void destroy_json(JSONElement * json) {
+  if (json->key.buffer.data != NULL) json->key.buffer.destroy();
+  if (json->value != NULL) destroy_json(json->value);
+  if (json->next != NULL) destroy_json(json->next);
+
+  delete json;
 }
 
 inline JSONElement * parse_literal(const JSONToken& token) {
@@ -296,6 +322,8 @@ inline JSONElement * parse_literal(const JSONToken& token) {
 }
 
 JSONElement * parse_json(FILE * file);
+// TODO: proper error and clean up function.
+
 inline JSONElement * parse_object(FILE * file) {
   //     previous <-------
   //                     |
@@ -311,34 +339,30 @@ inline JSONElement * parse_object(FILE * file) {
 
   State state = State::KEY;
   // [ string, colon, json, comma ]
-  JSONToken token;
-  while (token.type != JSONTokenType::END_OF_FILE &&
-         token.type != JSONTokenType::ERROR) {
+  JSONToken current_token = {};
+  while (current_token.type != JSONTokenType::END_OF_FILE &&
+         current_token.type != JSONTokenType::ERROR) {
 
     switch (state) {
       case State::KEY: {
-          token = get_next_token(file);
-          if (token.type == JSONTokenType::CLOSED_CURLY) {
-            return head;
-          }
-
+          current_token = get_next_token(file);
           if (previous != NULL) {
             object = new JSONElement();
           }
 
-          if (token.type != JSONTokenType::STRING) {
-            printf("Error: expected string as key, got %d.\n", (int)token.type);
+          if (current_token.type != JSONTokenType::STRING) {
+            printf("parse_object() Error: expected string as key, got %d.\n", (int)current_token.type);
             return NULL;
           }
 
-          object->key = token;
+          object->key = current_token;
           state = State::COLON;
         } break;
 
       case State::COLON: {
-          token = get_next_token(file);
-          if (token.type != JSONTokenType::COLON) {
-            printf("Error: expected ':' but got %d.\n", (int)token.type);
+          current_token = get_next_token(file);
+          if (current_token.type != JSONTokenType::COLON) {
+            printf("parse_object() Error: expected ':' but got %d.\n", (int)current_token.type);
             return NULL;
           }
           state = State::JSON;
@@ -350,50 +374,100 @@ inline JSONElement * parse_object(FILE * file) {
         } break;
 
       case State::COMMA: {
-          token = get_next_token(file);
-          if (token.type != JSONTokenType::COMMA) {
-            printf("Error: expected ',' but got %d.\n", (int)token.type);
+          current_token = get_next_token(file);
+          if (current_token.type == JSONTokenType::CLOSED_CURLY) {
+            return head;
+          }
+          if (current_token.type != JSONTokenType::COMMA) {
+            printf("parse_object() Error: expected ',' but got %d.\n", (int)current_token.type);
             return NULL;
           }
           state = State::KEY;
 
-          if (previous == NULL) {
-            previous = object;
-          } else {
+          if (previous != NULL) {
             previous->next = object;
           }
+          previous = object;
         } break;
     }
   }
 
-  if (token.type == JSONTokenType::END_OF_FILE) {
-    printf("Error: missing '}'\n");
+  if (current_token.type == JSONTokenType::END_OF_FILE) {
+    printf("parse_object() Error: missing '}'\n");
     return NULL;
   }
 
-  if (token.type == JSONTokenType::ERROR) {
-    printf("Error: bad token when parsing object.\n");
+  if (current_token.type == JSONTokenType::ERROR) {
+    printf("parse_object() Error: bad token when parsing object.\n");
     return NULL;
   }
 
   // shouldn't have gotten here.
-  return head;
-}
-
-inline JSONElement * parse_list(FILE * file) {
-  // [ json, json, ... ]
-
   return NULL;
 }
 
+// very similar to parse_object, except no keys.
+inline JSONElement * parse_list(FILE * file) {
+  // [ json, json, ... ]
+  JSONElement * previous = NULL;
+  JSONElement * list = new JSONElement();
+  JSONElement * head = list;
+
+  enum class State { JSON, COMMA };
+
+  State state = State::JSON;
+
+  JSONToken current_token;
+  while (current_token.type != JSONTokenType::END_OF_FILE &&
+         current_token.type != JSONTokenType::ERROR) {
+    switch (state) {
+      case State::JSON: {
+          if (current_token.type == JSONTokenType::CLOSED_BRACKET) {
+            return head;
+          }
+
+          if (previous != NULL) {
+            list = new JSONElement();
+          }
+
+          list->value = parse_json(file);
+
+          if (previous != NULL) {
+            previous->next = list;
+          }
+
+          previous = list;
+        } break;
+      case State::COMMA: {
+          if (current_token.type != JSONTokenType::COMMA) {
+            printf("Error: expected ',' seperating objects in an array, got %c\n", (int)current_token.type);
+            return NULL;
+          }
+        } break;
+    }
+    current_token = get_next_token(file);
+  }
+
+  if (current_token.type == JSONTokenType::END_OF_FILE) {
+    printf("Error: missing ']'\n");
+    return NULL;
+  }
+
+  if (current_token.type == JSONTokenType::ERROR) {
+    printf("Error: bad token when parsing list.\n");
+    return NULL;
+  }
+
+  // shouldn't have gotten here.
+  return NULL;
+}
 
 // parses a literal, array or object.
 inline JSONElement * parse_json(FILE * file) {
   JSONElement * json = NULL;
 
-  JSONToken token = get_next_token(file);
-
-  switch (token.type) {
+  JSONToken current_token = get_next_token(file);
+  switch (current_token.type) {
     case JSONTokenType::OPEN_CURLY: {
         // parse object
         json = parse_object(file);
@@ -409,11 +483,11 @@ inline JSONElement * parse_json(FILE * file) {
     case JSONTokenType::NUMBER:
     case JSONTokenType::STRING:
     case JSONTokenType::JSONNULL: {
-        json = parse_literal(token);
+        json = parse_literal(current_token);
       } break;
 
     default: {
-       printf("Error: token type = %c\n", (u8)token.type);
+       printf("Error: token type = %c\n", (u8)current_token.type);
        return NULL;
      } break;
   }
@@ -421,3 +495,7 @@ inline JSONElement * parse_json(FILE * file) {
   return json;
 }
 
+// TODO:
+// get_object_member
+// get_list_at
+// string_to_float
