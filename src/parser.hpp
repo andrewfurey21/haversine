@@ -3,17 +3,13 @@
 
 #include <cassert>
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <alloca.h>
 
-using u8 = uint8_t;
-using u64 = uint64_t;
-using u32 = int32_t;
-using b8 = u8;
-using f64 = double;
+#include "types.hpp"
+
 
 struct Buffer {
   u8 * data;
@@ -514,7 +510,6 @@ inline JSONElement * get_object_value(JSONElement * const json, const char * key
     }
 
     if (string_equal(current->key.buffer, key)) {
-      // current->value->next should be zero.
       return current->value;
     }
     current = current->next;
@@ -549,7 +544,8 @@ inline f64 convert_to_number(JSONElement * json) {
     }else if (!fraction) {
       value = value * 10 + digit;
     } else {
-      value += digit / pow(10.0, number_places);
+      value += (f64)digit / pow(10.0, number_places);
+      number_places++;
     }
   }
   return value * sign;

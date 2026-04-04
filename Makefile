@@ -1,4 +1,4 @@
-all: build generate parser
+all: build generate parser test
 
 build:
 	mkdir -p build
@@ -24,5 +24,9 @@ parser: ./build/parser.o
 clean:
 	rm ./build/*.o generate parser
 
+test: ./src/test_haversine.cpp ./src/haversine.cpp ./src/parser.hpp ./src/haversine.hpp
+	g++ ./src/test_haversine.cpp ./src/haversine.cpp -O3 -o test
+
 reset-tests:
 	rm ./tests/*
+

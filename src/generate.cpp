@@ -1,6 +1,6 @@
 #include "haversine.hpp"
 
-void generate_points_json(i32 random_seed, u64 num_pairs, const std::string& outputdir) {
+void generate_points_json(int random_seed, u64 num_pairs, const std::string& outputdir) {
   std::string json_name =
     outputdir + std::to_string(random_seed) + "_" + std::to_string(num_pairs) + ".json";
   std::string bin_name =
@@ -26,15 +26,16 @@ void generate_points_json(i32 random_seed, u64 num_pairs, const std::string& out
     std::string x1s = std::to_string(x1);
     std::string y1s = std::to_string(y1);
 
-    lonlat a = {.lon = x0, .lat = y0, };
-    lonlat b = { .lon = x1, .lat = y1, };
+    // lonlat a = {.lon = x0, .lat = y0, };
+    // lonlat b = { .lon = x1, .lat = y1, };
 
-    f64 h = reference_haversine(a, b, EARTH_RADIUS);
+    // f64 h = reference_haversine(a, b, EARTH_RADIUS);
+    f64 h = reference_haversine(x0, y0, x1, y1, EARTH_RADIUS);
     bin.write(reinterpret_cast<const char *>(&h), sizeof(f64));
 
+    std::cout << x0 << ", " << y0 << ", " << x1 << ", " << y1 << " = " << h << "\n";
     json << "{\"x0\":" + x0s + ", \"y0\":" + y0s + ", \"x1\":" + x1s + ", \"y1\":" + y1s + "}";
-    // if (i != num_pairs - 1) json << ",";
-    json << ",";
+    if (i != num_pairs - 1) json << ",";
     json << "\n";
   }
 
@@ -43,13 +44,13 @@ void generate_points_json(i32 random_seed, u64 num_pairs, const std::string& out
   bin.close();
 }
 
-i32 main(i32 argc, char** argv) {
+int main(int argc, char** argv) {
   if (argc != 4) {
     std::cerr << "Usage: ./generate <random seed> <number of coordinate pairs to generate> <save directory>\n";
     return -1;
   }
 
-  i32 random_seed = std::stoi(argv[1]);
+  int random_seed = std::stoi(argv[1]);
   u64 num_pairs = std::stoull(argv[2]);
 
   std::cout << "generating: " << ", random seed: " << random_seed << ", num pairs: " << num_pairs << "\n";
