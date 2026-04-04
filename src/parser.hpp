@@ -2,6 +2,7 @@
 // Simple C++ json parsing, not compliant.
 
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +13,7 @@ using u8 = uint8_t;
 using u64 = uint64_t;
 using u32 = int32_t;
 using b8 = u8;
+using f64 = double;
 
 struct Buffer {
   u8 * data;
@@ -64,7 +66,6 @@ struct Buffer {
   }
 
   void destroy() {
-    printf("Destroying buffer: (%d) %.*s\n", (int)capacity, (int)capacity, data);
     free(data);
     data = NULL;
     capacity = 0;
@@ -98,14 +99,7 @@ enum class JSONTokenType : u8 {
 struct JSONToken {
   JSONTokenType type;
   Buffer buffer;
-
   JSONToken() : type(JSONTokenType::UNSPECIFIED), buffer() {}
-  // JSONToken(const JSONToken& other) {
-  //   printf("Copying: %.*s\n", (int)other.buffer.capacity, other.buffer.data);
-  //   type = other.type;
-  //   buffer = Buffer(other.buffer);
-  // }
-  ~JSONToken() { printf("Deleting token: "); }
 };
 
 
@@ -376,8 +370,10 @@ inline JSONElement * parse_object(FILE * file) {
       case State::COMMA: {
           current_token = get_next_token(file);
           if (current_token.type == JSONTokenType::CLOSED_CURLY) {
+            if (previous != NULL) previous->next = object;
             return head;
           }
+
           if (current_token.type != JSONTokenType::COMMA) {
             printf("parse_object() Error: expected ',' but got %d.\n", (int)current_token.type);
             return NULL;
@@ -495,7 +491,66 @@ inline JSONElement * parse_json(FILE * file) {
   return json;
 }
 
-// TODO:
-// get_object_member
-// get_list_at
-// string_to_float
+inline b8 string_equal(const Buffer& buffer, const char * str) {
+  u64 len = strlen(str);
+  if (buffer.capacity != len) {
+    return false;
+  }
+
+  for (u64 i = 0; i < len; i++) {
+    if (buffer.data[i] != str[i]) return false;
+  }
+
+  return true;
+}
+
+inline JSONElement * get_object_value(JSONElement * const json, const char * key) {
+  JSONElement * current = json;
+  while (current != NULL) {
+    if (current->key.type != JSONTokenType::STRING) {
+      // all keys should be strings.
+      printf("get_object_value() Error: This is not an object.\n");
+      return NULL;
+    }
+
+    if (string_equal(current->key.buffer, key)) {
+      // current->value->next should be zero.
+      return current->value;
+    }
+    current = current->next;
+  }
+
+  printf("get_object_value() Error: Could not find object.\n");
+  return NULL;
+}
+
+inline f64 convert_to_number(JSONElement * json) {
+  if (json->key.type != JSONTokenType::NUMBER) {
+    printf("convert_to_number() Error: not a number.\n");
+    return 0;
+  }
+
+  // number should have been parsed with check_number
+  Buffer& number = json->key.buffer;
+
+  f64 value = 0;
+  f64 sign = 1;
+
+  b8 fraction = false;
+  u64 number_places = 0;
+
+  for (u64 i = 0; i < number.capacity; i++) {
+    u8 digit = number.data[i] - '0';
+    if (number.data[i] == '-') {
+      sign = -1;
+    } else if (number.data[i] == '.') {
+      number_places = 1;
+      fraction = true;
+    }else if (!fraction) {
+      value = value * 10 + digit;
+    } else {
+      value += digit / pow(10.0, number_places);
+    }
+  }
+  return value * sign;
+}
