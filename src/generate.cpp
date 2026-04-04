@@ -33,7 +33,7 @@ void generate_points_json(int random_seed, u64 num_pairs, const std::string& out
     f64 h = reference_haversine(x0, y0, x1, y1, EARTH_RADIUS);
     bin.write(reinterpret_cast<const char *>(&h), sizeof(f64));
 
-    std::cout << x0 << ", " << y0 << ", " << x1 << ", " << y1 << " = " << h << "\n";
+    // std::cout << x0 << ", " << y0 << ", " << x1 << ", " << y1 << " = " << h << "\n";
     json << "{\"x0\":" + x0s + ", \"y0\":" + y0s + ", \"x1\":" + x1s + ", \"y1\":" + y1s + "}";
     if (i != num_pairs - 1) json << ",";
     json << "\n";

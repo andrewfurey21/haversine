@@ -281,7 +281,7 @@ inline JSONToken get_next_token(FILE * file) {
 
 struct JSONElement {
   JSONToken key;
-  JSONElement * value;
+  JSONElement * value; // speed up with union with f64?
   JSONElement * next;
 
   JSONElement() : key(), value(NULL), next(NULL) {}
