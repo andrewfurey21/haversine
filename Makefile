@@ -24,8 +24,8 @@ parser: ./build/parser.o
 clean:
 	rm ./build/*.o generate parser
 
-test: ./src/test_haversine.cpp ./src/haversine.cpp ./src/parser.hpp ./src/haversine.hpp
-	g++ -std=c++17 ./src/test_haversine.cpp ./src/haversine.cpp -O3 -o test
+test: ./src/test_haversine.cpp ./src/haversine.cpp ./src/parser.hpp ./src/haversine.hpp ./src/profiler.hpp
+	g++ -std=c++17 ./src/test_haversine.cpp ./src/haversine.cpp -g -o test
 
 test_profiled: ./src/test_haversine.cpp ./src/haversine.cpp ./src/parser.hpp ./src/haversine.hpp
 	g++ -std=c++17 ./src/test_haversine.cpp ./src/haversine.cpp -O3 -pg -o test_profiled

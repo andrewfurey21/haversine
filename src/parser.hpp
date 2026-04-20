@@ -9,6 +9,7 @@
 #include <alloca.h>
 
 #include "types.hpp"
+#include "profiler.hpp"
 
 
 struct Buffer {
@@ -456,6 +457,7 @@ inline JSONElement * parse_list(FILE * file) {
 
 // parses a literal, array or object.
 inline JSONElement * parse_json(FILE * file) {
+  PROFILE_FUNCTION;
   JSONElement * json = NULL;
 
   JSONToken current_token = get_next_token(file);

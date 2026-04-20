@@ -7,6 +7,17 @@
 using u64 = uint64_t;
 using f64 = double;
 
+#include <string>
+#include <iostream>
+inline void _panic_if(bool expr, const std::string& func_name, const std::string& msg) {
+  if (expr) {
+    std::cerr << "Error at " << func_name << ": " <<  msg << "\n";
+    exit(1);
+  }
+}
+
+#define PANIC_IF(expr) _panic_if(expr, __func__, #expr)
+
 static u64 get_os_timer_freq() {
   return 1'000'000; // os timer is in microseconds.
 }
@@ -21,10 +32,11 @@ static u64 read_os_timer() {
 static inline u64 read_cpu_timer() { return __rdtsc(); }
 
 int main(int argc, char ** argv) {
-  if (argc != 2) {
-    printf("Usage: ./timer <microseconds>\n");
-    return 1;
-  }
+  PANIC_IF(argc != 2);
+  // if (argc != 2) {
+  //   printf("Usage: ./timer <microseconds>\n");
+  //   return 1;
+  // }
 
   u64 wait_time = atol(argv[1]);
   u64 cpu_clocks_start = read_cpu_timer();

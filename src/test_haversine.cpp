@@ -7,6 +7,8 @@
 #include <cstdio>
 
 int main(int argc, char ** argv) {
+  u64 start = __rdtsc();
+  PROFILE_FUNCTION;
   if (argc != 3) {
     printf("Usage: ./test <json> <outputs>\n");
     return 1;
@@ -39,6 +41,7 @@ int main(int argc, char ** argv) {
   JSONElement * current_pair = pairs;
   u64 counter = 0;
   while (current_pair != NULL) {
+    PROFILE_BLOCK("loop");
 
     f64 x0 = convert_to_number(get_object_value(current_pair->value, "x0"));
     f64 x1 = convert_to_number(get_object_value(current_pair->value, "x1"));
@@ -68,5 +71,7 @@ int main(int argc, char ** argv) {
   fclose(json_file);
 
   printf("Success.\n");
+  u64 end = __rdtsc();
+  std::cout << end - start << "\n";
   return 0;
 }
