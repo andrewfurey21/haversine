@@ -316,6 +316,7 @@ JSONElement * parse_json(FILE * file);
 // TODO: proper error and clean up function.
 
 inline JSONElement * parse_object(FILE * file) {
+  PROFILE_FUNCTION;
   //     previous <-------
   //                     |
   // { "key": json, "key": json, ... }
@@ -401,6 +402,7 @@ inline JSONElement * parse_object(FILE * file) {
 
 // very similar to parse_object, except no keys.
 inline JSONElement * parse_list(FILE * file) {
+  PROFILE_FUNCTION;
   // [ json, json, ... ]
   JSONElement * previous = NULL;
   JSONElement * list = new JSONElement();
@@ -458,6 +460,9 @@ inline JSONElement * parse_list(FILE * file) {
 // parses a literal, array or object.
 inline JSONElement * parse_json(FILE * file) {
   PROFILE_FUNCTION;
+  // PROFILE_BLOCK("parse_json");
+  // Block parse_json_block = Block("parse_json", 5);
+
   JSONElement * json = NULL;
 
   JSONToken current_token = get_next_token(file);
@@ -485,7 +490,6 @@ inline JSONElement * parse_json(FILE * file) {
        return NULL;
      } break;
   }
-
   return json;
 }
 

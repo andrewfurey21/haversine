@@ -6,8 +6,6 @@
 #include <cassert>
 #include <immintrin.h>
 
-// TODO: test each panic_if, double check bounds checking.
-
 const u64 MAX_ANCHORS = 512;
 
 #ifdef NDEBUG
@@ -37,18 +35,13 @@ public:
   static Anchor * get_anchor(u64 anchor_index) {
     return Profiler::_anchors + anchor_index;
   }
-  static void new_anchor(const char * label) {
+  static void new_anchor(const char * label, u64 index) {
     Profiler& profiler = GetInstance();
     PANIC_IF(profiler._num_anchors >= MAX_ANCHORS);
+    PANIC_IF(index > MAX_ANCHORS);
 
-    Profiler::_anchors[profiler._num_anchors].label = label;
+    Profiler::_anchors[index].label = label;
     profiler._num_anchors++;
-  }
-  static u64 child_clocks(u64 anchor_index) {
-    const Profiler& profiler = GetInstance();
-    PANIC_IF(anchor_index == 0);
-    PANIC_IF(anchor_index > MAX_ANCHORS);
-    return Profiler::_anchors[anchor_index].child_clocks;
   }
   static u64 update_recent_anchor_index(u64 anchor_index) {
     u64 saved = GetInstance()._recent_anchor_index;
@@ -70,12 +63,22 @@ private:
   Profiler& operator=(Profiler&& other) = delete;
   ~Profiler() {
     u64 total_clocks = 0;
-    for (u64 i = 1; i < _num_anchors; i++) {
-      Anchor& anchor = Profiler::_anchors[i];
-      total_clocks += anchor.clocks - anchor.child_clocks;
+    for (u64 i = 1; i < MAX_ANCHORS; i++) {
+      Anchor& anchor = _anchors[i];
+      if (anchor.label != 0) {
+        total_clocks += anchor.clocks - anchor.child_clocks;
+      }
     }
 
-    std::cout << "Total clocks: " << total_clocks << "\n";
+    for (u64 i = 1; i < MAX_ANCHORS; i++) {
+      Anchor& anchor = _anchors[i];
+      if (anchor.label != 0) {
+        u64 clocks = anchor.clocks - anchor.child_clocks;
+        f64 perc = (f64)clocks / total_clocks * 100.0;
+        std::cout << anchor.label << " ( " << anchor.hit_count <<  " ): "
+                  << clocks << ", " << perc << "%\n";
+      }
+    }
   }
 
   u64 _recent_anchor_index;
@@ -92,7 +95,7 @@ public:
 
     Anchor * anchor = Profiler::get_anchor(anchor_index);
     if (anchor->label == 0) {
-      Profiler::new_anchor(label);
+      Profiler::new_anchor(label, anchor_index);
     }
 
     anchor->hit_count++;
@@ -102,10 +105,10 @@ public:
 
   ~Block() {
     u64 end_clock = get_clocks();
-    u64 total_clocks =
-      (end_clock - start_clock) - Profiler::child_clocks(anchor_index);
     Anchor * anchor = Profiler::get_anchor(anchor_index);
     Anchor * parent = Profiler::get_anchor(parent_anchor_index);
+
+    u64 total_clocks = (end_clock - start_clock);
 
     parent->child_clocks += total_clocks;
     anchor->clocks += total_clocks;
