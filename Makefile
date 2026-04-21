@@ -22,7 +22,7 @@ clean:
 	rm ./build/*.o generate parser
 
 test: ./src/test_haversine.cpp ./src/parser.hpp ./src/haversine.hpp ./src/profiler.hpp
-	g++ -std=c++17 ./src/test_haversine.cpp -lm -g -O0 -o test
+	g++ -std=c++17 ./src/test_haversine.cpp -lm -O3 -o test
 
 reset-tests:
 	rm ./tests/*

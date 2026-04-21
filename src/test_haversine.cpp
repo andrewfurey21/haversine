@@ -49,7 +49,7 @@ int main(int argc, char ** argv) {
   JSONElement * current_pair = pairs;
   u64 counter = 0;
   while (current_pair != NULL) {
-    PROFILE_BLOCK("calculating haversines");
+    PROFILE_BLOCK("loop calculating haversines");
 
     f64 x0 = convert_to_number(get_object_value(current_pair->value, "x0"));
     f64 x1 = convert_to_number(get_object_value(current_pair->value, "x1"));
@@ -79,9 +79,5 @@ int main(int argc, char ** argv) {
   fclose(json_file);
 
   printf("Success.\n");
-
-  time_point<steady_clock> end = steady_clock::now();
-  milliseconds wall_time = duration_cast<milliseconds>(end - start);
-  std::cout << "Time (in ms): " << wall_time.count() << "\n";
   return 0;
 }

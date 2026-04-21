@@ -5,6 +5,9 @@
 #include <iostream>
 #include <cassert>
 #include <immintrin.h>
+#include <chrono>
+
+using namespace std::chrono;
 
 const u64 MAX_ANCHORS = 512;
 
@@ -55,20 +58,23 @@ private:
   }
 
   // 0 index is garbage.
-  Profiler() : _num_anchors{1}, _recent_anchor_index{0} {}
+  Profiler() :
+  _num_anchors{1},
+  _recent_anchor_index{0},
+  _start_clock(get_clocks()),
+  _start_time(std::chrono::steady_clock::now()) {}
 
   Profiler(const Profiler& other) = delete;
   Profiler(Profiler&& other) = delete;
   Profiler& operator=(const Profiler& other) = delete;
   Profiler& operator=(Profiler&& other) = delete;
   ~Profiler() {
-    u64 total_clocks = 0;
-    for (u64 i = 1; i < MAX_ANCHORS; i++) {
-      Anchor& anchor = _anchors[i];
-      if (anchor.label != 0) {
-        total_clocks += anchor.clocks - anchor.child_clocks;
-      }
-    }
+    u64 total_clocks = get_clocks() - _start_clock;
+    milliseconds total_milli =
+      duration_cast<milliseconds>(steady_clock::now() - _start_time);
+    f64 clock_freq_ghz = (f64)total_clocks / (total_milli.count() / 1000.0) / 1e9;
+
+    std::cout << "Total time (ms): " << total_milli.count() << " (" << clock_freq_ghz << "GHz)\n";
 
     for (u64 i = 1; i < MAX_ANCHORS; i++) {
       Anchor& anchor = _anchors[i];
@@ -81,8 +87,11 @@ private:
     }
   }
 
+
   u64 _recent_anchor_index;
   u64 _num_anchors;
+  u64 _start_clock;
+  time_point<steady_clock> _start_time;
   // needs to be static. else, explicitly set all to zero.
   static inline Anchor _anchors[MAX_ANCHORS];
 };
