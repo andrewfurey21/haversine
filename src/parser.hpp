@@ -1,6 +1,8 @@
 
 // Simple C++ json parsing, not compliant.
 
+#include <filesystem>
+
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -10,7 +12,6 @@
 
 #include "types.hpp"
 #include "profiler.hpp"
-
 
 struct Buffer {
   u8 * data;
@@ -73,6 +74,47 @@ struct Buffer {
   }
 };
 
+struct FileBuffer {
+  Buffer buffer;
+  u64 offset;
+  b8 eof;
+  FileBuffer(const char * filename) : offset{0}, eof{false} {
+    u64 num_bytes = std::filesystem::file_size(filename);
+    FILE * f = fopen(filename, "r");
+    if (f == NULL) {
+      std::cerr << "Cannot open " << filename << "\n";
+      PANIC_IF(f == NULL);
+    }
+    this->buffer = Buffer(num_bytes);
+
+    PROFILE_BANDWIDTH("fread", sizeof(u8) * num_bytes);
+    u64 bytes_read = fread(this->buffer.data, sizeof(u8), num_bytes, f);
+
+    PANIC_IF(bytes_read != num_bytes);
+    fclose(f);
+  }
+  u8 read_byte() {
+    if (eof || offset >= buffer.capacity) {
+      eof = true;
+      return 0;
+    }
+    return buffer.data[offset++];
+  }
+  u64 read_bytes(void * dest, u64 num_objects, u64 num_bytes) {
+    u64 count_bytes = 0;
+    for (u64 i = 0; i < num_bytes * num_objects; i++) {
+      if (eof) {
+        return count_bytes;
+      }
+      u8 * byte_addr = (u8 *)dest + i;
+      *byte_addr = read_byte();
+      count_bytes++;
+    }
+    return count_bytes;
+  }
+  u64 size() { return buffer.capacity; }
+};
+
 enum class JSONTokenType : u8 {
   UNSPECIFIED = 0,
   OPEN_CURLY = '{',
@@ -99,41 +141,39 @@ struct JSONToken {
   JSONToken() : type(JSONTokenType::UNSPECIFIED), buffer() {}
 };
 
-
 inline b8 is_whitespace(u8 character) {
   return (character == '\t' || character == ' ' ||
           character == '\r' || character == '\n');
 }
 
-inline u8 read_char(FILE * f, u8 * character) {
-  u64 advanced = fread(character, sizeof(u8), 1, f);
-  assert(advanced == sizeof(u8) || feof(f));
+inline u8 read_char(FileBuffer& file, u8 * character) {
+  *character = file.read_byte();
   return *character;
 }
 
-inline b8 match_lookahead(FILE * f, const char * match) {
+inline b8 match_lookahead(FileBuffer& file, const char * match) {
   for (u64 i{}; i < strlen(match); i++) {
     u8 current;
-    read_char(f, &current);
+    read_char(file, &current);
     if (match[i] != current) return false;
   }
   return true;
 }
 
-inline void copy_string(JSONToken& token, FILE * f, const u64 alignment = 16) {
+inline void copy_string(JSONToken& token, FileBuffer& file, const u64 alignment = 16) {
   // NOTE: Stack has to grow downward.
   u8 * string_stack = (u8 *)alloca(sizeof(u8));
   u64 count = 0;
 
   // TODO: recognize escaped characters.
-  while (read_char(f, string_stack) != '"' && !feof(f)) {
+  while (read_char(file, string_stack) != '"' && !file.eof) {
     count++;
 
     // NOTE: no check for overflow. Alignment also matters here.
     string_stack = (u8 *)alloca(sizeof(u8));
   }
 
-  if (feof(f)) {
+  if (file.eof) {
     token.type = JSONTokenType::ERROR; // TODO: add error message to buffer.
     return;
   }
@@ -174,19 +214,19 @@ inline void check_number(JSONToken& token) {
   }
 }
 
-inline void read_number(JSONToken& token, FILE * f, u8 start, const u64 alignment = 16) {
+inline void read_number(JSONToken& token, FileBuffer& file, u8 start, const u64 alignment = 16) {
     u8 * number_stack = (u8 *)alloca(sizeof(u8));
     u64 count = 1;
 
-    u32 last = ftell(f);
-    while (is_numeric(read_char(f, number_stack)) && !feof(f)) {
+    u64 last = file.offset;
+    while (is_numeric(read_char(file, number_stack)) && !file.eof) {
       count++;
       number_stack = (u8 *)alloca(sizeof(u8));
-      last = ftell(f);
+      last = file.offset;
     }
-    fseek(f, last, SEEK_SET);
+    file.offset = last;
 
-    if (feof(f)) {
+    if (file.eof) {
       token.type = JSONTokenType::ERROR;
       return;
     }
@@ -203,15 +243,15 @@ inline void read_number(JSONToken& token, FILE * f, u8 start, const u64 alignmen
     check_number(token);
 }
 
-inline JSONToken get_next_token(FILE * file) {
+inline JSONToken get_next_token(FileBuffer& file) {
   JSONToken token;
 
   u8 current_character = ' ';
-  while (!feof(file) && is_whitespace(current_character)) {
+  while (!file.eof && is_whitespace(current_character)) {
     read_char(file, &current_character);
   }
 
-  if (feof(file)) {
+  if (file.eof) {
     token.type = JSONTokenType::END_OF_FILE;
     return token;
   }
@@ -288,10 +328,18 @@ struct JSONElement {
   JSONElement() : key(), value(NULL), next(NULL) {}
 };
 
-inline void destroy_json(JSONElement * json) {
+inline void destroy_json(JSONElement * json, bool destroy_next = true) {
+  PROFILE_FUNCTION;
   if (json->key.buffer.data != NULL) json->key.buffer.destroy();
   if (json->value != NULL) destroy_json(json->value);
-  if (json->next != NULL) destroy_json(json->next);
+
+  // if (json->next != NULL) destroy_json(json->next);
+  JSONElement * current = json->next;
+  while (destroy_next && current != NULL) {
+    JSONElement * next = current->next;
+    destroy_json(current, false);
+    current = next;
+  }
 
   delete json;
 }
@@ -312,10 +360,10 @@ inline JSONElement * parse_literal(const JSONToken& token) {
   return literal;
 }
 
-JSONElement * parse_json(FILE * file);
+JSONElement * parse_json(FileBuffer& file);
 // TODO: proper error and clean up function.
 
-inline JSONElement * parse_object(FILE * file) {
+inline JSONElement * parse_object(FileBuffer& file) {
   PROFILE_FUNCTION;
   //     previous <-------
   //                     |
@@ -330,7 +378,6 @@ inline JSONElement * parse_object(FILE * file) {
   };
 
   State state = State::KEY;
-  // [ string, colon, json, comma ]
   JSONToken current_token = {};
   while (current_token.type != JSONTokenType::END_OF_FILE &&
          current_token.type != JSONTokenType::ERROR) {
@@ -401,7 +448,7 @@ inline JSONElement * parse_object(FILE * file) {
 }
 
 // very similar to parse_object, except no keys.
-inline JSONElement * parse_list(FILE * file) {
+inline JSONElement * parse_list(FileBuffer& file) {
   PROFILE_FUNCTION;
   // [ json, json, ... ]
   JSONElement * previous = NULL;
@@ -458,11 +505,8 @@ inline JSONElement * parse_list(FILE * file) {
 }
 
 // parses a literal, array or object.
-inline JSONElement * parse_json(FILE * file) {
+inline JSONElement * parse_json(FileBuffer& file) {
   PROFILE_FUNCTION;
-  // PROFILE_BLOCK("parse_json");
-  // Block parse_json_block = Block("parse_json", 5);
-
   JSONElement * json = NULL;
 
   JSONToken current_token = get_next_token(file);
@@ -547,7 +591,7 @@ inline f64 convert_to_number(JSONElement * json) {
     } else if (number.data[i] == '.') {
       number_places = 1;
       fraction = true;
-    }else if (!fraction) {
+    } else if (!fraction) {
       value = value * 10 + digit;
     } else {
       value += (f64)digit / pow(10.0, number_places);

@@ -3,20 +3,11 @@
 #include "parser.hpp"
 #include "profiler.hpp"
 
-#include <chrono>
-
 #include <cmath>
 #include <cstdio>
 #include <ctime>
 
 int main(int argc, char ** argv) {
-
-  using namespace std::chrono;
-  time_point<steady_clock> start = steady_clock::now();
-
-
-
-  PROFILE_FUNCTION;
   if (argc != 3) {
     printf("Usage: ./test <json> <outputs>\n");
     return 1;
@@ -27,20 +18,10 @@ int main(int argc, char ** argv) {
   const char * json_filename = argv[1];
   const char * outputs_filename = argv[2];
 
-  FILE * json_file = NULL, * outputs_file = NULL;
+  FileBuffer json_file(json_filename);
+  FileBuffer outputs_file(outputs_filename);
 
-
-  json_file = fopen(json_filename, "r");
-  if (json_file == NULL) {
-    printf("Could not open json_file\n");
-    return 1;
-  }
-
-  outputs_file = fopen(outputs_filename, "rb");
-  if (outputs_file == NULL) {
-    printf("Could not open outputs file\n");
-    return 1;
-  }
+  PROFILE_BANDWIDTH("main", json_file.size() + outputs_file.size());
 
   JSONElement * json  = parse_json(json_file);
 
@@ -50,7 +31,6 @@ int main(int argc, char ** argv) {
   u64 counter = 0;
   while (current_pair != NULL) {
     PROFILE_BLOCK("loop calculating haversines");
-
     f64 x0 = convert_to_number(get_object_value(current_pair->value, "x0"));
     f64 x1 = convert_to_number(get_object_value(current_pair->value, "x1"));
     f64 y0 = convert_to_number(get_object_value(current_pair->value, "y0"));
@@ -58,9 +38,9 @@ int main(int argc, char ** argv) {
 
     f64 h = reference_haversine(x0, y0, x1, y1, EARTH_RADIUS);
     f64 actual = 0;
-    u64 bytes = fread(&actual, 1, sizeof(actual), outputs_file);
+    u64 bytes = outputs_file.read_bytes(&actual, 1, sizeof(actual));
     if (bytes != sizeof(actual) * 1) {
-      printf("Error reading actual outputs. Num bytes: %lu, should be %lu\n", bytes, sizeof(actual));
+      printf("Error (%lu) reading actual outputs. Num bytes: %lu, should be %lu\n", counter, bytes, sizeof(actual));
       break;
     }
 
@@ -75,9 +55,6 @@ int main(int argc, char ** argv) {
   }
 
   destroy_json(json);
-  fclose(outputs_file);
-  fclose(json_file);
-
   printf("Success.\n");
   return 0;
 }

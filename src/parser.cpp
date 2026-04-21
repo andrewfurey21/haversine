@@ -11,12 +11,7 @@ int main(int argc, char ** argv) {
     return 1;
   }
 
-  FILE * f;
-  f = fopen(argv[1], "r");
-  if (!f) {
-    printf("Error: could not read file: %s\n", argv[1]);
-    return 1;
-  }
+  FileBuffer f = FileBuffer(argv[1]);
   JSONElement * json = parse_json(f);
 
   JSONElement * pairs_list = get_object_value(json, "pairs");
@@ -37,7 +32,6 @@ int main(int argc, char ** argv) {
     current = current->next;
   }
   destroy_json(json);
-  fclose(f);
   return 0;
 }
 

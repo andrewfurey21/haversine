@@ -29,11 +29,15 @@ struct Anchor {
   u64 hit_count;
   u64 clocks;
   u64 child_clocks;
+  u64 bytes_processed;
   const char * label;
 };
 
+struct Block;
+
 class Profiler {
-public:
+  friend class Block;
+
   static u64 num_anchors() { return GetInstance()._num_anchors; }
   static Anchor * get_anchor(u64 anchor_index) {
     return Profiler::_anchors + anchor_index;
@@ -51,7 +55,6 @@ public:
     GetInstance()._recent_anchor_index = anchor_index;
     return saved;
   }
-private:
   static Profiler& GetInstance() {
     static Profiler profiler;
     return profiler;
@@ -69,24 +72,32 @@ private:
   Profiler& operator=(const Profiler& other) = delete;
   Profiler& operator=(Profiler&& other) = delete;
   ~Profiler() {
+    // TODO: don't like this. should end timer when last block destructs.
+    // TODO: add with children
     u64 total_clocks = get_clocks() - _start_clock;
     milliseconds total_milli =
       duration_cast<milliseconds>(steady_clock::now() - _start_time);
     f64 clock_freq_ghz = (f64)total_clocks / (total_milli.count() / 1000.0) / 1e9;
 
-    std::cout << "Total time (ms): " << total_milli.count() << " (" << clock_freq_ghz << "GHz)\n";
+    std::cout << "Totals : " << total_milli.count() << "ms,"
+              << " (" << clock_freq_ghz << "GHz), " << total_clocks <<  " cycles\n";
 
     for (u64 i = 1; i < MAX_ANCHORS; i++) {
       Anchor& anchor = _anchors[i];
       if (anchor.label != 0) {
         u64 clocks = anchor.clocks - anchor.child_clocks;
         f64 perc = (f64)clocks / total_clocks * 100.0;
-        std::cout << anchor.label << " ( " << anchor.hit_count <<  " ): "
-                  << clocks << ", " << perc << "%\n";
+        std::cout << anchor.label << " (" << anchor.hit_count <<  "): " << perc << "%";
+        if (anchor.bytes_processed != 0) {
+          f64 megabytes = anchor.bytes_processed / (1024.0 * 1024.0);
+          f64 seconds = ((f64)clocks / 1e9) / clock_freq_ghz;
+          f64 gbs = (megabytes / (1024.0)) / seconds;
+          std::cout << ", " << megabytes << "MiB at " << gbs << "GiB/s";
+        }
+        std::cout << "\n";
       }
     }
   }
-
 
   u64 _recent_anchor_index;
   u64 _num_anchors;
@@ -94,13 +105,15 @@ private:
   time_point<steady_clock> _start_time;
   // needs to be static. else, explicitly set all to zero.
   static inline Anchor _anchors[MAX_ANCHORS];
+  // inline static Anchor _anchors[MAX_ANCHORS]; ?? what is inline static
 };
 
 class Block {
 public:
-  Block(const char * label, u64 anchor_index) {
+  Block(const char * label, u64 anchor_index, u64 bytes = 0) {
     PANIC_IF(label == 0);
     this->anchor_index = anchor_index;
+    this->bytes = bytes;
 
     Anchor * anchor = Profiler::get_anchor(anchor_index);
     if (anchor->label == 0) {
@@ -121,6 +134,7 @@ public:
 
     parent->child_clocks += total_clocks;
     anchor->clocks += total_clocks;
+    anchor->bytes_processed += bytes;
 
     Profiler::update_recent_anchor_index(parent_anchor_index);
   }
@@ -128,13 +142,18 @@ private:
   u64 start_clock;
   u64 anchor_index;
   u64 parent_anchor_index;
+  u64 bytes;
 };
 
 #ifdef NDEBUG
+#define PROFILE_BANDWIDTH
 #define PROFILE_BLOCK
 #define PROFILE_FUNCTION
 #else
-#define CONCAT(x, y) x##y
+#define _CONCAT(x, y) x##y
+#define CONCAT(x, y) _CONCAT(x, y)
+#define PROFILE_BANDWIDTH(name, bytes) \
+  Block CONCAT(block, __LINE__) = Block(name, __COUNTER__ + 1, bytes)
 #define PROFILE_BLOCK(name) \
   Block CONCAT(block, __LINE__) = Block(name, __COUNTER__ + 1)
 #define PROFILE_FUNCTION PROFILE_BLOCK(__func__)
