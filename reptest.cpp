@@ -2,6 +2,7 @@
 #include "./src/profiler.hpp"
 
 #include <fstream>
+#include <vector>
 #include <iostream>
 #include <cstdio>
 #include <string>
@@ -15,7 +16,8 @@ const u64 NUM_TESTS = 1'000;
 
 class RepititionTester {
 public:
-  RepititionTester(u64 num_tests) :
+  RepititionTester(const char * name, u64 num_tests) :
+    test_name(name),
     begin_clocks(0),
     num_tests(num_tests),
     tests_completed(0),
@@ -45,9 +47,13 @@ public:
     if (state == COMPLETED) {
       f64 cpu_freq = estimate_cpu_freq();
       pretty_test("min", cpu_freq, min_clocks);
-      pretty_test("avg", cpu_freq, (f64)total_clocks / num_tests);
+      pretty_test("avg", cpu_freq, (f64)total_clocks / tests_completed);
       pretty_test("max", cpu_freq, max_clocks);
       std::cout << "-------------------------------------------\n\n";
+      std::ofstream all_clocks_file(test_name);
+      for (int i = 0; i < all_clocks.size(); i++) {
+        all_clocks_file << all_clocks[i] << "\n";
+      }
       return;
     }
 
@@ -68,7 +74,9 @@ public:
   void end_timer() {
     u64 clocks = get_clocks() - begin_clocks;
     total_clocks += clocks;
-    if (state != TIMING) { report_error(__func__, "cannot end time in this state."); }
+    all_clocks.push_back(clocks);
+
+    if (state != TIMING) { report_error(__func__, "must end time in TIMING state."); }
     tests_completed++;
     max_clocks = std::max(max_clocks, clocks);
     min_clocks = std::min(min_clocks, clocks);
@@ -81,6 +89,7 @@ public:
   u64 completed_test() { return tests_completed; }
 private:
 
+  std::string test_name;
   u64 num_tests;
   u64 tests_completed;
 
@@ -90,6 +99,8 @@ private:
   u64 min_clocks;
   u64 total_clocks;
   u64 bytes_read;
+
+  std::vector<u64> all_clocks;
 
   enum {
     TESTING,
@@ -101,7 +112,7 @@ private:
 
 void repetition_test_fread(std::string filename) {
   std::cout << "-------------- testing fread --------------\n";
-  RepititionTester rep_test = RepititionTester(NUM_TESTS);
+  RepititionTester rep_test = RepititionTester("fread", NUM_TESTS);
   u64 buffer_size = std::filesystem::file_size(filename);
   rep_test.register_bytes_read(buffer_size);
 
@@ -128,7 +139,7 @@ void repetition_test_fread(std::string filename) {
 
 void repetition_test_fstream_read(std::string filename) {
   std::cout << "------------- testing fstream -------------\n";
-  RepititionTester rep_test = RepititionTester(NUM_TESTS);
+  RepititionTester rep_test = RepititionTester("fstream.read", NUM_TESTS);
   u64 buffer_size = std::filesystem::file_size(filename);
   rep_test.register_bytes_read(buffer_size);
 
