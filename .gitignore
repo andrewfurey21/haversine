@@ -6,3 +6,5 @@ parser
 test
 timer
 reptest
+fread
+fstream.read
