@@ -2,6 +2,7 @@
 #define PROFILER_HPP
 
 #include "types.hpp"
+#include <ctime>
 #include <iostream>
 #include <cassert>
 #include <immintrin.h>
@@ -23,7 +24,33 @@ inline void panic_if(bool expr, const char * func_name, const char * msg) {
   }
 }
 
-inline u64 get_clocks() { return __rdtsc(); }
+inline u64 get_clocks() {
+  _mm_lfence();
+  u64 clocks = __rdtsc();
+  _mm_lfence();
+  return clocks;
+}
+
+// returns microseconds
+inline u64 get_os_time() {
+  timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return (t.tv_nsec + (u64)t.tv_sec * 1e9) / 1000ull;
+}
+
+inline f64 estimate_cpu_freq() {
+  u64 wait_micros = 100'000;
+  u64 start_clocks = get_clocks();
+
+  u64 os_start = get_os_time();
+  u64 os_elapsed = 0;
+  while (os_elapsed < wait_micros) {
+    os_elapsed = get_os_time() - os_start;
+  }
+  u64 clocks = get_clocks() - start_clocks;
+  // std::cout << "test clocks: " << clocks;
+  return (f64)clocks / (wait_micros / 1'000'000.f);
+}
 
 struct Anchor {
   u64 hit_count;
@@ -65,7 +92,7 @@ class Profiler {
   _num_anchors{1},
   _recent_anchor_index{0},
   _start_clock(get_clocks()),
-  _start_time(std::chrono::steady_clock::now()) {}
+  _start_time(steady_clock::now()) {}
 
   Profiler(const Profiler& other) = delete;
   Profiler(Profiler&& other) = delete;
@@ -104,9 +131,12 @@ class Profiler {
   u64 _start_clock;
   time_point<steady_clock> _start_time;
   // needs to be static. else, explicitly set all to zero.
+  // static inline Anchor _anchors[MAX_ANCHORS];
   static inline Anchor _anchors[MAX_ANCHORS];
   // inline static Anchor _anchors[MAX_ANCHORS]; ?? what is inline static
 };
+
+// inline Anchor Profiler::_anchors[MAX_ANCHORS];
 
 class Block {
 public:

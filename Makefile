@@ -1,4 +1,4 @@
-all: build generate parser test
+all: build generate parser test rep_test
 
 build:
 	mkdir -p build
@@ -27,3 +27,5 @@ test: ./src/test_haversine.cpp ./src/parser.hpp ./src/haversine.hpp ./src/profil
 reset-tests:
 	rm ./tests/*
 
+rep_test:
+	g++ reptest.cpp -O3 -o reptest

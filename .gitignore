@@ -5,3 +5,4 @@ parser
 *.o
 test
 timer
+reptest
