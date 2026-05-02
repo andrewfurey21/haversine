@@ -7,6 +7,7 @@
 #include <cassert>
 #include <immintrin.h>
 #include <chrono>
+#include <sys/resource.h>
 
 using namespace std::chrono;
 
@@ -50,6 +51,12 @@ inline f64 estimate_cpu_freq() {
   u64 clocks = get_clocks() - start_clocks;
   // std::cout << "test clocks: " << clocks;
   return (f64)clocks / (wait_micros / 1'000'000.f);
+}
+
+inline u64 get_page_faults() {
+  struct rusage u = {0};
+  getrusage(RUSAGE_SELF, &u);
+  return u.ru_minflt + u.ru_majflt;
 }
 
 struct Anchor {

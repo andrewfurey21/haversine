@@ -6,5 +6,5 @@ parser
 test
 timer
 reptest
-fread
-fstream.read
+fread_clocks
+fread_page_faults

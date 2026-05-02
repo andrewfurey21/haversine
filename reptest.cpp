@@ -10,9 +10,13 @@
 #include <cstdint>
 #include <filesystem>
 
+#include <sys/resource.h>
+
 using namespace std::chrono;
 
 const u64 NUM_TESTS = 1'000;
+
+// TODO: add reading pagefaults
 
 class RepititionTester {
 public:
@@ -25,6 +29,8 @@ public:
     min_clocks(UINT64_MAX),
     total_clocks(0),
     bytes_read(0),
+    all_page_faults{},
+    all_clocks{},
     state(TESTING)
   {}
 
@@ -50,9 +56,13 @@ public:
       pretty_test("avg", cpu_freq, (f64)total_clocks / tests_completed);
       pretty_test("max", cpu_freq, max_clocks);
       std::cout << "-------------------------------------------\n\n";
-      std::ofstream all_clocks_file(test_name);
+      std::ofstream all_clocks_file(test_name + "_clocks");
+      std::ofstream all_page_faults_file(test_name + "_page_faults");
       for (int i = 0; i < all_clocks.size(); i++) {
         all_clocks_file << all_clocks[i] << "\n";
+      }
+      for (int i = 0; i < all_page_faults.size(); i++) {
+        all_page_faults_file << all_page_faults[i] << "\n";
       }
       return;
     }
@@ -75,6 +85,7 @@ public:
     u64 clocks = get_clocks() - begin_clocks;
     total_clocks += clocks;
     all_clocks.push_back(clocks);
+    all_page_faults.push_back(get_page_faults());
 
     if (state != TIMING) { report_error(__func__, "must end time in TIMING state."); }
     tests_completed++;
@@ -100,6 +111,7 @@ private:
   u64 total_clocks;
   u64 bytes_read;
 
+  std::vector<u64> all_page_faults;
   std::vector<u64> all_clocks;
 
   enum {
@@ -116,12 +128,12 @@ void repetition_test_fread(std::string filename) {
   u64 buffer_size = std::filesystem::file_size(filename);
   rep_test.register_bytes_read(buffer_size);
 
+  Buffer buffer = Buffer(buffer_size);
   while (rep_test.testing()) {
     FILE *f = fopen(filename.data(), "rb");
     if (f) {
       rep_test.begin_timer();
 
-      Buffer buffer = Buffer(buffer_size);
       u64 num_bytes = fread(buffer.data, 1, buffer_size, f);
       u64 total = 0;
       for (int i = 0; i < buffer_size; i++) {
@@ -137,39 +149,11 @@ void repetition_test_fread(std::string filename) {
   rep_test.report_test();
 }
 
-void repetition_test_fstream_read(std::string filename) {
-  std::cout << "------------- testing fstream -------------\n";
-  RepititionTester rep_test = RepititionTester("fstream.read", NUM_TESTS);
-  u64 buffer_size = std::filesystem::file_size(filename);
-  rep_test.register_bytes_read(buffer_size);
-
-  Buffer buffer = Buffer(buffer_size);
-
-  while (rep_test.testing()) {
-    std::fstream f = std::fstream();
-    f.open(filename, std::ios_base::binary | std::ios_base::in);
-
-    if (f.is_open()) {
-      rep_test.begin_timer();
-      Buffer buffer = Buffer(buffer_size);
-      f.read((char *)buffer.data, buffer.capacity);
-      rep_test.end_timer();
-    } else {
-      rep_test.report_error(__func__, "could not read " + filename);
-    }
-
-    f.close();
-  }
-
-  rep_test.report_test();
-}
-
 int main(int argc, char **argv) {
   if (argc != 2) {
     std::cerr << "Usage: ./reptest <file>\n";
     return 1;
   }
   repetition_test_fread(argv[1]);
-  repetition_test_fstream_read(argv[1]);
   return 0;
 }
