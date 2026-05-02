@@ -23,6 +23,7 @@ public:
   RepititionTester(const char * name, u64 num_tests) :
     test_name(name),
     begin_clocks(0),
+    begin_page_faults(0),
     num_tests(num_tests),
     tests_completed(0),
     max_clocks(0),
@@ -80,12 +81,13 @@ public:
   void begin_timer() {
     state = TIMING;
     begin_clocks = get_clocks();
+    begin_page_faults = get_page_faults();
   }
   void end_timer() {
     u64 clocks = get_clocks() - begin_clocks;
     total_clocks += clocks;
     all_clocks.push_back(clocks);
-    all_page_faults.push_back(get_page_faults());
+    all_page_faults.push_back(get_page_faults() - begin_page_faults);
 
     if (state != TIMING) { report_error(__func__, "must end time in TIMING state."); }
     tests_completed++;
@@ -105,6 +107,7 @@ private:
   u64 tests_completed;
 
   u64 begin_clocks;
+  u64 begin_page_faults;
 
   u64 max_clocks;
   u64 min_clocks;
