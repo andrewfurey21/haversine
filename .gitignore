@@ -8,3 +8,4 @@ timer
 reptest
 fread_clocks
 fread_page_faults
+test_asm

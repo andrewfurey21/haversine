@@ -1,4 +1,4 @@
-all: build generate parser test rep_test
+all: build generate parser test rep_test test_asm
 
 build:
 	mkdir -p build
@@ -28,4 +28,9 @@ reset-tests:
 	rm ./tests/*
 
 rep_test:
-	g++ reptest.cpp -O3 -o reptest
+	g++ reptest.cpp -O0 -g -pg -o reptest
+
+test_asm: routines.s test_asm.cpp
+	as routines.s -c -o routines.o
+	g++ test_asm.cpp -c -o test_asm.o
+	g++ test_asm.o routines.o -o test_asm

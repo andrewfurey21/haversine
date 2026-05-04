@@ -1,142 +1,28 @@
 #include "./src/parser.hpp"
-#include "./src/profiler.hpp"
 
-#include <fstream>
-#include <vector>
 #include <iostream>
 #include <cstdio>
 #include <string>
 
-#include <cstdint>
 #include <filesystem>
 
 #include <sys/resource.h>
+#include <sys/mman.h>
 
-using namespace std::chrono;
-
-const u64 NUM_TESTS = 1'000;
-
-// TODO: add reading pagefaults
-
-class RepititionTester {
-public:
-  RepititionTester(const char * name, u64 num_tests) :
-    test_name(name),
-    begin_clocks(0),
-    begin_page_faults(0),
-    num_tests(num_tests),
-    tests_completed(0),
-    max_clocks(0),
-    min_clocks(UINT64_MAX),
-    total_clocks(0),
-    bytes_read(0),
-    all_page_faults{},
-    all_clocks{},
-    state(TESTING)
-  {}
-
-  bool testing() { return state == TESTING; }
-  void report_error(const std::string& fname, const std::string& msg) {
-    std::cerr << "Error at " << fname << "(): " << msg << "\n";
-    state = ERROR;
-  }
-
-  void pretty_test(const char * name, f64 cpu_freq_hz, f64 clocks) {
-    f64 time_ms = clocks / cpu_freq_hz * 1000.f;
-    f64 bandwidth = (bytes_read / (time_ms / 1000.f)) / 1'000'000'000;
-    std::cout << name << ": " << clocks << " (" << time_ms <<  "ms) ";
-    if (bytes_read != 0) {
-      std::cout << bytes_read / 1000.f << "kB at " << bandwidth << "GB/s\n";
-    }
-  }
-
-  void report_test() {
-    if (state == COMPLETED) {
-      f64 cpu_freq = estimate_cpu_freq();
-      pretty_test("min", cpu_freq, min_clocks);
-      pretty_test("avg", cpu_freq, (f64)total_clocks / tests_completed);
-      pretty_test("max", cpu_freq, max_clocks);
-      std::cout << "-------------------------------------------\n\n";
-      std::ofstream all_clocks_file(test_name + "_clocks");
-      std::ofstream all_page_faults_file(test_name + "_page_faults");
-      for (int i = 0; i < all_clocks.size(); i++) {
-        all_clocks_file << all_clocks[i] << "\n";
-      }
-      for (int i = 0; i < all_page_faults.size(); i++) {
-        all_page_faults_file << all_page_faults[i] << "\n";
-      }
-      return;
-    }
-
-    if (state != ERROR) {
-      std::cerr << "Warning: ended repetition testing during a test (" << state << ").\n";
-      return;
-    }
-
-    std::cerr << "Exiting because of error.\n";
-  }
-  void register_bytes_read(u64 num_bytes) {
-    bytes_read = num_bytes;
-  }
-  void begin_timer() {
-    state = TIMING;
-    begin_clocks = get_clocks();
-    begin_page_faults = get_page_faults();
-  }
-  void end_timer() {
-    u64 clocks = get_clocks() - begin_clocks;
-    total_clocks += clocks;
-    all_clocks.push_back(clocks);
-    all_page_faults.push_back(get_page_faults() - begin_page_faults);
-
-    if (state != TIMING) { report_error(__func__, "must end time in TIMING state."); }
-    tests_completed++;
-    max_clocks = std::max(max_clocks, clocks);
-    min_clocks = std::min(min_clocks, clocks);
-    if (tests_completed == num_tests) {
-      state = COMPLETED;
-    } else {
-      state = TESTING;
-    }
-  }
-  u64 completed_test() { return tests_completed; }
-private:
-
-  std::string test_name;
-  u64 num_tests;
-  u64 tests_completed;
-
-  u64 begin_clocks;
-  u64 begin_page_faults;
-
-  u64 max_clocks;
-  u64 min_clocks;
-  u64 total_clocks;
-  u64 bytes_read;
-
-  std::vector<u64> all_page_faults;
-  std::vector<u64> all_clocks;
-
-  enum {
-    TESTING,
-    TIMING,
-    COMPLETED,
-    ERROR,
-  } state;
-};
+#include "reptester.hpp"
 
 void repetition_test_fread(std::string filename) {
   std::cout << "-------------- testing fread --------------\n";
-  RepititionTester rep_test = RepititionTester("fread", NUM_TESTS);
+  RepetitionTester rep_test = RepetitionTester("fread", NUM_TESTS);
   u64 buffer_size = std::filesystem::file_size(filename);
   rep_test.register_bytes_read(buffer_size);
 
-  Buffer buffer = Buffer(buffer_size);
   while (rep_test.testing()) {
     FILE *f = fopen(filename.data(), "rb");
     if (f) {
       rep_test.begin_timer();
 
+      Buffer buffer = Buffer(buffer_size); // definitly doing something wrong. os doing something fishy
       u64 num_bytes = fread(buffer.data, 1, buffer_size, f);
       u64 total = 0;
       for (int i = 0; i < buffer_size; i++) {
@@ -152,11 +38,41 @@ void repetition_test_fread(std::string filename) {
   rep_test.report_test();
 }
 
+// the graph looks weird i don't know what linux is doing, maybe getrusage isn't as precise as i think it is?
+void repetition_test_mmap(std::string filename) {
+  std::cout << "-------------- testing mmap --------------\n";
+  RepetitionTester rep_test = RepetitionTester("mmap", NUM_TESTS);
+  const u64 num_bytes = 4096 * 128;
+  rep_test.register_bytes_read(num_bytes);
+
+  u8 *mem = (u8 *)mmap(NULL, num_bytes, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+  // u8 *mem = (u8 *)mmap(NULL, num_bytes, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_POPULATE, -1, 0);
+  // madvise(mem, num_bytes, MADV_WILLNEED);
+
+  // while (rep_test.testing()) {
+    for (u64 i = 0; i < num_bytes; i++) {
+      rep_test.begin_timer();
+      mem[i] = (u8)i;
+      rep_test.end_timer();
+    }
+  // }
+  munmap(mem, num_bytes);
+
+  rep_test.report_test();
+}
+
+// TODO: compare mmap'd io vs fread vs read vs fstream.read. read paper. prove mmap is bad. which one is best? why?
+// TODO: answer the q: why one big fread over small freads. does fread mmap? when do changes get written to disk?
+// TODO: what is populate actually doing? madvise doesn't seem to help.
+// TODO: enable huge pages. does linux lock to physical like windows? mmap'd files using hugepages? transparent vs explicit.
+// TODO: automatic circular buffer, change detection, sparse memory
+
 int main(int argc, char **argv) {
   if (argc != 2) {
     std::cerr << "Usage: ./reptest <file>\n";
     return 1;
   }
-  repetition_test_fread(argv[1]);
+  // repetition_test_fread(argv[1]);
+  repetition_test_mmap("mmap");
   return 0;
 }

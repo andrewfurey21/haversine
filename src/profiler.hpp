@@ -56,7 +56,7 @@ inline f64 estimate_cpu_freq() {
 inline u64 get_page_faults() {
   struct rusage u = {0};
   getrusage(RUSAGE_SELF, &u);
-  return u.ru_minflt + u.ru_majflt;
+  return u.ru_minflt;// + u.ru_majflt;
 }
 
 struct Anchor {
