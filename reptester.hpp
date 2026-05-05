@@ -31,7 +31,7 @@ public:
 
   void pretty_test(const char * name, f64 cpu_freq_hz, f64 clocks) {
     f64 time_ms = clocks / cpu_freq_hz * 1000.f;
-    f64 bandwidth = (bytes_read / (time_ms / 1000.f)) / 1'000'000'000;
+    f64 bandwidth = (bytes_read / (time_ms / 1000.f)) / (1024 * 1024 * 1024);
     std::cout << name << ": " << clocks << " (" << time_ms <<  "ms) ";
     if (bytes_read != 0) {
       std::cout << bytes_read / 1000.f << "kB at " << bandwidth << "GB/s\n";
@@ -41,6 +41,7 @@ public:
   void report_test() {
     if (state == COMPLETED) {
       f64 cpu_freq = estimate_cpu_freq();
+      std::cout << "Estimate cpu freq: " << cpu_freq << "\n";
       pretty_test("min", cpu_freq, min_clocks);
       pretty_test("avg", cpu_freq, (f64)total_clocks / tests_completed);
       pretty_test("max", cpu_freq, max_clocks);

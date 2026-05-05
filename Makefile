@@ -30,7 +30,7 @@ reset-tests:
 rep_test:
 	g++ reptest.cpp -O0 -g -pg -o reptest
 
-test_asm: routines.s test_asm.cpp
-	as routines.s -c -o routines.o
-	g++ test_asm.cpp -c -o test_asm.o
+test_asm: routines.s test_asm.cpp reptester.hpp
+	as routines.s -g -c -o routines.o
+	g++ test_asm.cpp -g -c -o test_asm.o
 	g++ test_asm.o routines.o -o test_asm
